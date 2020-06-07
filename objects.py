@@ -113,7 +113,7 @@ class Options(Stock):
 #Contract
 #Stores the information for a single option contract
 class Contract:
-    def __init__(self,opt=Options(),isCall = True, index=0):
+    def __init__(self,opt,isCall = True, index=0):
         self.isCall = isCall
         self.index = index
         self.opts = opt                             #The options object contract came from
@@ -153,27 +153,11 @@ class Combo:
         #Get the required changes of underlying price
         self.req_bull_changeEXP = self.req_bullEXP - self.bull.opts.bid
         self.req_bear_changeEXP = self.req_bearEXP - self.bear.opts.bid          #Should be negative
-
-    def print_req_change(self):
-        print(self.bull.opts.bid)
-        print("REQ BULL CHANGE: "+str(self.req_bull_changeEXP)+"\tREQ BEAR CHANGE: "+str(self.req_bear_changeEXP))
-
-#This will be removed
-#It was used for debugging but will also be the basis for the combo analysis module that comes next!
-'''
-hd = Options("HD")
-low = Options("LOW")
-
-hd.update_valid_options()
-low.update_valid_options()
-for i,bull in enumerate(low.valid_calls):
-    for j,bear in enumerate(hd.valid_puts):
-        c = Combo(bull,bear)
-        c.update()
-        print(str(i)+","+str(j))
-        c.print_req_change()
-
-'''
+        #Get the required percent changes in underlying price
+        self.req_bull_percentEXP = (self.req_bull_changeEXP / self.bull.opts.bid)*100
+        self.req_bear_percentEXP = (self.req_bear_changeEXP / self.bear.opts.bid)*100
+    def serialize(self):
+        return ("REQ BULL CHANGE: $"+str(self.req_bull_changeEXP)[:5]+"["+str(self.req_bull_percentEXP)[:5]+"%]"+"\tREQ BEAR CHANGE: $"+str(self.req_bear_changeEXP)[:5]+"["+str(self.req_bear_percentEXP)[:5]+"%]")
 
 
 
