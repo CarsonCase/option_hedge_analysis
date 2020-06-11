@@ -15,15 +15,27 @@
 #=====================================================================================
 import objects
 import config
+import predictStockChange as psc 
+from colorama import Fore,Style
 
 hd = objects.Options(config.bear)
 low = objects.Options(config.bull)
 
 hd.update_valid_options()
 low.update_valid_options()
+
 for i,bull in enumerate(low.valid_calls):
     for j,bear in enumerate(hd.valid_puts):
         c = objects.Combo(bull,bear)
-        c.update()
+        print("========================TRADE====================")
         print(c.serialize())
+        print("PROBABILITY OF 10% proffit+: "+str(c.ProfitProbability()*100)[:5]+"%")
+        odds = c.odds()
+        if(odds[0]>odds[1]):
+            print(Fore.CYAN)
+        print("ODDS(gain,loss): "+str(odds))
+        
+        print(Style.RESET_ALL)
+
+
 

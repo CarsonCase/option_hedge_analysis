@@ -13,60 +13,49 @@ import objects
 import config
 import math
 import numpy
+import datetime
 
 #**************************
-#FUNCTIONS
+#FUNCTIONS (moved most to objects)
 #**************************
 
-# I stole this from stack overflow....
-def weighted_avg_and_sd(values, x):
-    #create weights
-    weights = []
-    for i in range(0,len(values)):
-        weights.append(pow((i+1),x))
-    """
-    Return the weighted average and standard deviation.
-
-    values, weights -- Numpy ndarrays with the same shape.
-    """
-    average = numpy.average(values, weights=weights)
-    # Fast and numerically precise:
-    variance = numpy.average((values-average)**2, weights=weights)
-    return (average, math.sqrt(variance))
-
-#Fills the bull and bear data lists
-def fill_daily_percent_change(obj, arr):
-    for i in range(0,len(obj.history)):
-        Open = obj.history["Open"][i]
-        Close = obj.history["Close"][i]
-        arr.append((Close-Open)/Close) 
+#A neat idea. But I don't think I will use it. Not sure if I will later. Seems like I can just use the probability
+#to find probability of decrease
+#Preforms the Crash Analysis
+'''
+def crash_analysis(obj):
+    obj.update_options()
+    opt_len = (str_to_date(obj.exp_date) - datetime.date.today()).days      #time to expiration
+    crash_count = 0
+    period_count = 0
+    average_severity = 0
+    for i in range(0,len(obj.history),opt_len):
+        total_change = 0
+        # I'm not going to round or whatever. At least not now. Just cut off the last few days that don't fit within the itteration
+        if(i+opt_len > len(obj.history)):
+            break
+        for j in range(i,i+opt_len):
+            total_change += obj.percent_change(j)
+        #crash is defined as a total decrease over the period of time that our option lasts in history
+        if total_change < 0:
+            crash_count+=1
+            average_severity += total_change
+        period_count += 1
+    return(crash_count,period_count,average_severity/crash_count)
+    '''
 
 #**************************
 #END OF FUNCTIONS
 #**************************
-bull = objects.Stock(config.bull)
-bear = objects.Stock(config.bear)
+bull = objects.Options(config.bull)
+bear = objects.Options(config.bear)
 
 #Percent daily change for bear and bull
-bullData = []
-bearData = []
-fill_daily_percent_change(bull,bullData)
-fill_daily_percent_change(bear,bearData)
 
 #Mean and SD are respectivly stored in a tuple:
-bull_daily_growth = weighted_avg_and_sd(bullData,config.Xfactor)
-bear_daily_growth = weighted_avg_and_sd(bearData,config.Xfactor)
+bull_daily_growth = bull.weighted_avg_and_sd()
+bear_daily_growth = bear.weighted_avg_and_sd()            
 
+#PRINT STUFF
 print("BULL DAILY GROWTH(MEAN,SD): "+str(bull_daily_growth))
 print("BEAR DAILY GROWTH(MEAN,SD): "+str(bear_daily_growth))
-
-#Crash Analysis:
-#Define a crash as -> total decrease over a period of half the option length
-#if this happens define it as a crash and create crash object (also keep track of the number of x day periods. X being half option length)
-#For each crash find total percent decrease in the crash and note it's time score so we cand use the same weighted average here
-#Finaly find the weighted probabilty of a crash and what the average/sd is of the crash percent change
-#later use those values to find if our insurance put on the bear is likely to be useful and how much risk it mitigates
-
-#FOR LATER
-#The probability of profit as of right now would be the probability bull grows to req_bull_growth + probability of bear crash to insurance
-#This relies on exit strategy of break even only for contracts at expire which is default right now. This will eventually change to a dynamic value.

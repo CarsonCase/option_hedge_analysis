@@ -1,0 +1,1 @@
+Check out Boris Banushev's StockPrediction program reccomended by Cameron on GitHub. After Finishing the modules outlined for stockbot, consider replacing the stock prediction with a tweaked version of that

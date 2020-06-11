@@ -13,6 +13,10 @@
 #===================================================
 #INCLUDES:
 import yfinance as yf
+import numpy
+import math
+import statistics
+import datetime
 import config
 
 #Stock
@@ -25,6 +29,7 @@ class Stock:
         self.TKR = ticker
         self.start_date = time
         self.update()
+
     #Update information with data from yfinance
     def update(self):
         #basic data
@@ -38,6 +43,36 @@ class Stock:
         self.volume = self.info["volume"]
         #Historical Data
         self.history = yf.download(self.TKR,self.start_date)
+        #Mean and SD from historical data
+        self.mean,self.sd = self.weighted_avg_and_sd()
+
+    #Return the daily price change for a particular index in the history dataframe
+    def percent_change(self,i):
+        Open = self.history["Open"][i]
+        Close = self.history["Close"][i]
+        return((Close-Open)/Close)
+    
+    #Returns the weighted average and sd of the daily percentage change historically. Copied a bit from stack overflow...
+    def weighted_avg_and_sd(self):
+        #get values
+        values = []
+        for i in range(0,len(self.history)):
+            values.append(self.percent_change(i))
+        #create weights
+        weights = []
+        for i in range(0,len(values)):
+            weights.append(pow((i+1),config.Xfactor))
+        """
+        Return the weighted average and standard deviation.
+
+        values, weights -- Numpy ndarrays with the same shape.
+        """
+        average = numpy.average(values, weights=weights)
+        # Fast and numerically precise:
+        variance = numpy.average((values-average)**2, weights=weights)
+        return (average, math.sqrt(variance))
+
+    #obvious
     def printInfo(self):
         print(self.info)
     #FINALNOTE: More is going to be added certainly. However, this is all we need for now
@@ -119,14 +154,33 @@ class Contract:
         self.opts = opt                             #The options object contract came from
         self.data=opt.get_data_frame(isCall,index)
         self.algoScore = 0
-
-    # needs to update all its underlying data then get a new dataframe
-    def update(self):
-        self.opts.update_valid_options()
+        self.daysToExpire = (self.__str_to_date(self.opts.exp_date) - datetime.date.today()).days
         self.data = self.opts.get_data_frame(self.isCall,self.index)
+        
+    #Get data for prices and whatnot in regards to a combo
+    def update_combo_data(self,combo_total_cost):
+        #Get the required prices for underlying at expiration for profit
+        if(self.isCall):
+            self.reqEXP = combo_total_cost+self.data.strike
+        else:
+            self.reqEXP = self.data.strike - combo_total_cost
+        #Get the required changes of underlying price
+        self.req_changeEXP = self.reqEXP - self.opts.bid
+        #Get the required percent changes in underlying price
+        self.req_percentEXP = self.req_changeEXP / self.opts.bid
 
+    #gets the zscore of the req percent change on historical data. 
+    #MUST HAVE CALLED UPDATE_COMBO_DATA!!!
+    def get_z_score(self, req_percent):
+        return ((req_percent/self.daysToExpire)-self.opts.mean)/self.opts.sd
+
+    #print data
     def print(self):
         print(self.data)
+
+    #converts the "2020-01-01" date format we use to a datetime object
+    def __str_to_date(self, date):
+        return(datetime.date(int(date[:4]),int(date[5:7]), int(date[8:10])))
 
     #A lot more is going to be added here I am sure once we get to analysis
     #This is where each individual contract's calculated scores and probabilities and whatnot
@@ -139,26 +193,39 @@ class Combo:
     def __init__(self, bull, bear):
         self.bull = bull
         self.bear = bear
-    def update(self):
-        #Get the strike prices
-        self.bull_strike = self.bull.data.strike
-        self.bear_strike = self.bear.data.strike
         #Get the cost of the contracts
-        self.bull_cost = self.bull.data.ask
-        self.bear_cost = self.bear.data.ask
-        self.total_cost = self.bull_cost + self.bear_cost
-        #Get the required prices for underlying at expiration for profit
-        self.req_bullEXP = self.total_cost + self.bull_strike
-        self.req_bearEXP = self.bear_strike - self.total_cost
-        #Get the required changes of underlying price
-        self.req_bull_changeEXP = self.req_bullEXP - self.bull.opts.bid
-        self.req_bear_changeEXP = self.req_bearEXP - self.bear.opts.bid          #Should be negative
-        #Get the required percent changes in underlying price
-        self.req_bull_percentEXP = (self.req_bull_changeEXP / self.bull.opts.bid)*100
-        self.req_bear_percentEXP = (self.req_bear_changeEXP / self.bear.opts.bid)*100
+        self.total_cost = self.bull.data.ask + self.bear.data.ask
+        #Calculate required changes
+        self.bull.update_combo_data(self.total_cost)
+        self.bear.update_combo_data(self.total_cost)
+
+    #return a nice string of data on the contract
     def serialize(self):
-        return ("REQ BULL CHANGE: $"+str(self.req_bull_changeEXP)[:5]+"["+str(self.req_bull_percentEXP)[:5]+"%]"+"\tREQ BEAR CHANGE: $"+str(self.req_bear_changeEXP)[:5]+"["+str(self.req_bear_percentEXP)[:5]+"%]")
+        return ("REQ BULL CHANGE: $"+str(self.bull.req_changeEXP)[:5]+"["+str(self.bull.req_percentEXP*100)[:5]+"%]"+"\tREQ BEAR CHANGE: $"+str(self.bear.req_changeEXP)[:5]+"["+str(self.bear.req_percentEXP*100)[:5]+"%]")
 
+    #return probability of break even
+    def BEprobability(self):
+        #zscore of each
+        bull_z = self.bull.get_z_score(self.bull.req_percentEXP)
+        bear_z = self.bear.get_z_score(self.bear.req_percentEXP)
+        #Probability
+        #1- because we want probability it's greater than z score
+        bull_p = 1 - statistics.NormalDist().cdf(bull_z)
+        #no 1- because we want probability it's less than z score
+        bear_p = statistics.NormalDist().cdf(bear_z)
+        return(bull_p+bear_p)
 
-
-
+    #probability of ten percent profit
+    def ProfitProbability(self):
+        #z scores:
+        bull_z = self.bull.get_z_score(self.bull.req_percentEXP+(config.req_profit/self.bull.daysToExpire))
+        bear_z = self.bear.get_z_score(self.bear.req_percentEXP+(config.req_profit/self.bear.daysToExpire))
+        bull_p = 1- statistics.NormalDist().cdf(bull_z)
+        bear_p = statistics.NormalDist().cdf(bear_z)
+        return(bull_p+bear_p)
+    
+    #Returns odds for loss and gain in regards to probability
+    def odds(self):
+        loss = (1-self.BEprobability())*self.total_cost
+        gain = self.ProfitProbability()*self.total_cost*(1+config.req_profit)
+        return(gain,loss)
