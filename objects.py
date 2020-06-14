@@ -53,6 +53,7 @@ class Stock:
         return((Close-Open)/Close)
     
     #Returns the weighted average and sd of the daily percentage change historically. Copied a bit from stack overflow...
+    #Eventually replace this with a KERNAL DENSITY FUNCTION. God that is a terrifying thought
     def weighted_avg_and_sd(self):
         #get values
         values = []
@@ -87,9 +88,6 @@ class Options(Stock):
     #MUST BE CALLED BEFORE update_valid_options IF YOU WANT TO SET EXP DATE
     #======================================================================
     def update_options(self,exp_date=config.default_exp_date):
-        #Whenever you update, update from top down
-        self.update()
-
         self.exp_date = exp_date
         self.option_chain = self.yfObject.option_chain(self.exp_date)
         self.calls = self.option_chain.calls
@@ -108,14 +106,14 @@ class Options(Stock):
         for i in range(len(self.calls.index)):
             bid = self.calls.at[i,"bid"]
             ask = self.calls.at[i,"ask"]
-            if(self.__is_spread_valid(bid,ask)):
+            if(self.__is_spread_valid(bid,ask) and self.__is_volume_valid(self.calls.at[i,"volume"])):
                 c = Contract(self,True,i)
                 self.valid_calls.append(c)
         #PUTS
         for i in range(len(self.puts.index)):
             bid = self.puts.at[i,"bid"]
             ask = self.puts.at[i,"ask"]
-            if(self.__is_spread_valid(bid,ask)):
+            if(self.__is_spread_valid(bid,ask) and self.__is_volume_valid(self.puts.at[i,"volume"])):
                 p = Contract(self,False,i)
                 self.valid_puts.append(p)
 
@@ -136,11 +134,17 @@ class Options(Stock):
         else:
             return self.puts.loc[i]
 
-    #Private Method to return if an option is valid
+    #Private Method to return if an option is valid based on spread
     def __is_spread_valid(self,bid,ask):
         if(ask==0):
             return False
         elif((ask-bid)/ask < config.default_max_spread):
+            return True
+        else:
+            return False
+
+    def __is_volume_valid(self,volume):
+        if(volume >= config.default_min_volume):
             return True
         else:
             return False
@@ -174,6 +178,11 @@ class Contract:
     def get_z_score(self, req_percent):
         return ((req_percent/self.daysToExpire)-self.opts.mean)/self.opts.sd
 
+    #Converts a zscore to the actual value of price at expire that coresponds to that z score
+    def get_est_price(self,z):
+        x = self.daysToExpire*(z*self.opts.sd + self.opts.mean)
+        return (x+1)*self.opts.bid
+
     #print data
     def print(self):
         print(self.data)
@@ -198,6 +207,11 @@ class Combo:
         #Calculate required changes
         self.bull.update_combo_data(self.total_cost)
         self.bear.update_combo_data(self.total_cost)
+        #get odds (saved because we use a lot I think)
+        self.odds = self.getOdds()
+        #Exit Condiutions. May change over time to be more dynamic for each trade
+        self.exit_max = config.req_profit
+        self.exit_bail =- config.bail_price
 
     #return a nice string of data on the contract
     def serialize(self):
@@ -213,19 +227,43 @@ class Combo:
         bull_p = 1 - statistics.NormalDist().cdf(bull_z)
         #no 1- because we want probability it's less than z score
         bear_p = statistics.NormalDist().cdf(bear_z)
-        return(bull_p+bear_p)
-
-    #probability of ten percent profit
-    def ProfitProbability(self):
-        #z scores:
-        bull_z = self.bull.get_z_score(self.bull.req_percentEXP+(config.req_profit/self.bull.daysToExpire))
-        bear_z = self.bear.get_z_score(self.bear.req_percentEXP+(config.req_profit/self.bear.daysToExpire))
-        bull_p = 1- statistics.NormalDist().cdf(bull_z)
-        bear_p = statistics.NormalDist().cdf(bear_z)
-        return(bull_p+bear_p)
+        return(bull_p, bear_p)
     
     #Returns odds for loss and gain in regards to probability
-    def odds(self):
-        loss = (1-self.BEprobability())*self.total_cost
-        gain = self.ProfitProbability()*self.total_cost*(1+config.req_profit)
+    def getOdds(self):
+        #NOTE: This assumes that they mirror one another. And therefore must carry one another. This does not account for probability that
+        #one stock goes down and the other goes up. That is fairly rare and when it happens does not happen consistently to a very large degree.
+        #HOPEFULLY this means that is statistically insignificant. Man I am a terrible statistican
+        bull_z = self.bull.get_z_score(self.bull.req_percentEXP)
+        bear_z = self.bear.get_z_score(self.bear.req_percentEXP)
+        #print(str(bull_z)+":"+str(bear_z))
+        loss = (statistics.NormalDist().cdf(bull_z) * self.bull.data.ask) + ((1-statistics.NormalDist().cdf(bear_z))*self.bear.data.ask)
+        gain = 0
+
+        #Get an array of z scores to interpret for bull
+        bull_zs = numpy.linspace(bull_z,config.max_z_score,config.z_score_iterations)
+        #And edit gain odds as the probability of a z score * the profit it would give
+
+        for i in range(0,len(bull_zs)-1):
+            p = bull_zs[i]
+            profit = self.bull.get_est_price(p) - (self.bull.data.strike + self.total_cost)
+            P = (1-statistics.NormalDist().cdf(p)) - (1-statistics.NormalDist().cdf(bull_zs[i+1]))
+            gain += profit*P
+
+        #Do the same for bear (I know this is wet. Ah well. I can fix it later if I want)
+        bear_zs = numpy.linspace(bear_z,config.max_z_score*-1,config.z_score_iterations)
+
+        for i in range(0,len(bear_zs)-1):
+            p=bear_zs[i]
+            profit = self.bear.data.strike - (self.bear.get_est_price(p) + self.total_cost)
+            P = statistics.NormalDist().cdf(p) - statistics.NormalDist().cdf(bear_zs[i+1])
+            gain += profit * P
+            
         return(gain,loss)
+
+    #Returns true if odds are positive and false if not
+    def isValid(self):
+        if self.odds[0]>self.odds[1]:
+            return True
+        else: 
+            return False 

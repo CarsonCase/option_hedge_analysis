@@ -47,6 +47,7 @@ def crash_analysis(obj):
 #**************************
 #END OF FUNCTIONS
 #**************************
+'''
 bull = objects.Options(config.bull)
 bear = objects.Options(config.bear)
 
@@ -59,3 +60,4 @@ bear_daily_growth = bear.weighted_avg_and_sd()
 #PRINT STUFF
 print("BULL DAILY GROWTH(MEAN,SD): "+str(bull_daily_growth))
 print("BEAR DAILY GROWTH(MEAN,SD): "+str(bear_daily_growth))
+'''

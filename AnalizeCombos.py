@@ -16,26 +16,43 @@
 import objects
 import config
 import predictStockChange as psc 
-from colorama import Fore,Style
 
-hd = objects.Options(config.bear)
-low = objects.Options(config.bull)
+def printCombo(c):
+    print("========================TRADE====================")
+    print(c.serialize())
+    print("PROBABILITY: "+str(c.BEprobability()))
+    print("ODDS(gain,loss): "+str(c.odds))
+    print("************************BULL************************")
+    c.bull.print()
+    print("************************BEAR************************")
+    c.bear.print()
 
-hd.update_valid_options()
-low.update_valid_options()
+def oddsDifference(c):
+    o = c.odds
+    return o[0]-o[1]
 
-for i,bull in enumerate(low.valid_calls):
-    for j,bear in enumerate(hd.valid_puts):
-        c = objects.Combo(bull,bear)
-        print("========================TRADE====================")
-        print(c.serialize())
-        print("PROBABILITY OF 10% proffit+: "+str(c.ProfitProbability()*100)[:5]+"%")
-        odds = c.odds()
-        if(odds[0]>odds[1]):
-            print(Fore.CYAN)
-        print("ODDS(gain,loss): "+str(odds))
-        
-        print(Style.RESET_ALL)
+def getBestTrade(bullTKR, bearTKR):
+    #Get the stocks we're evaluating
+    bull = objects.Options(bullTKR)
+    bear = objects.Options(bearTKR)
 
+    bull.update_valid_options()
+    bear.update_valid_options()
 
+    #add relevant stocks to an array of combos
+    relevantCombos = []
+
+    for i,bullC in enumerate(bull.valid_calls):
+        for j,bearC in enumerate(bear.valid_puts):
+            c = objects.Combo(bullC,bearC)
+            if(c.isValid()):
+                relevantCombos.append(c)
+
+    #sort options by odds
+    relevantCombos.sort(reverse=True, key=oddsDifference)
+
+    return(relevantCombos[0])
+
+printCombo(getBestTrade("HD","LOW"))
+printCombo(getBestTrade("LOW","HD"))
 
